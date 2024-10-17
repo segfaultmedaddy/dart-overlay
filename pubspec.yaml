@@ -1,0 +1,15 @@
+name: "dart_overlay"
+version: 0.0.1
+publish_to: none
+license: MIT
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  jetlog: ^1.0.0
+  json_annotation: ^4.9.0
+
+dev_dependencies:
+  json_serializable: ^6.8.0
+  build_runner: ^2.3.3
