@@ -4,9 +4,12 @@
 }:
 let
   inherit (pkgs) lib;
-  stableSources = builtins.fromJSON (lib.strings.fileContents "./sources-${system}-stable.json");
-  betaSources = builtins.fromJSON (lib.strings.fileContents "./sources-${system}-beta.json");
-  devSources = builtins.fromJSON (lib.strings.fileContents "./sources-${system}-dev.json");
+
+  src = {
+    stable = builtins.fromJSON (lib.strings.fileContents "./sources/stable/sources.json");
+    beta = builtins.fromJSON (lib.strings.fileContents "./sources/beta/sources.json");
+    dev = builtins.fromJSON (lib.strings.fileContents "./sources/dev/sources.json");
+  };
 
   mkInstall =
     {
@@ -29,5 +32,27 @@ let
           find $out/bin -executable -type f -exec patchelf --set-interpreter $(cat $NIX_CC/nix-support/dynamic-linker) {} \;
         '';
     };
+
+  mkChannel = lib.attrsets.mapAttrs (k: v: mkInstall { inherit (v.${system}) version url sha256; }) (
+    lib.attrsets.filterAttrs (k: v: (builtins.hasAttr system v))
+  );
+
+  stable = mkChannel (src.stable);
+  dev = mkChannel (src.dev);
+  beta = mkChannel (src.beta);
+
+  # latest stable versions. It is fine to take the first entry as
+  # it is expected that the source map will be sorted in desc order by
+  # version.
+  latest = lib.lists.first stable;
 in
-{ }
+stable
+// {
+  dev = dev;
+}
+// {
+  beta = beta;
+}
+// {
+  default = stable.${latest};
+}

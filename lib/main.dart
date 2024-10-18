@@ -1,13 +1,27 @@
-import 'dart:io' show HttpClient, File, stdin;
+import 'dart:io' show HttpClient, File;
 import 'dart:convert' show utf8, json, JsonEncoder;
 import 'dart:math' show min;
 import 'package:pub_semver/pub_semver.dart' show Version;
 import 'package:jetlog/jetlog.dart' as log;
 import 'package:jetlog/handlers.dart' show ConsoleHandler;
 import 'package:jetlog/formatters.dart' show TextFormatter;
-
 import 'src/dao.dart';
 import 'src/svn_versions.dart';
+
+typedef SourceValue = Map<
+    String, // $arch-$platform
+    Source>;
+
+Map<String, SourceValue> _parseSources(String content) {
+  final Map<String, dynamic> parsedJsonMap = json.decode(content);
+  return Map<String, SourceValue>.fromIterables(parsedJsonMap.keys,
+      parsedJsonMap.keys.map((key) {
+    final source = Map<String, dynamic>.from(parsedJsonMap[key]);
+
+    return Map<String, Source>.fromIterables(
+        source.keys, source.keys.map((key) => Source.fromJson(source[key])));
+  }));
+}
 
 // Supported channels.
 enum Channel {
@@ -21,7 +35,7 @@ enum Channel {
       "dev" => Channel.dev,
       "beta" => Channel.beta,
       "stable" => Channel.stable,
-      _ => throw Exception('Unsupported channel')
+      _ => throw Exception('Unsupported channel $str')
     };
   }
 }
@@ -112,8 +126,7 @@ Future<List<Version>> fetchVersions(
 
       return versions..add(version);
     },
-  ).toList()
-    ..sort((a, b) => b.compareTo(a));
+  ).toList();
 }
 
 String _dartArchivePath(
@@ -147,35 +160,49 @@ Future<MapEntry<String, Source>> fetchSource(HttpClient client, Channel channel,
       "${arch.toNix()}-${platform.toNix()}", Source(version, url, sha256));
 }
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
+  if (args.isEmpty) {
+    throw Exception('Missing channel argument');
+  }
+
   _logger.handler = ConsoleHandler(formatter: TextFormatter.withDefaults());
   _logger.level = log.Level.info;
 
+  // using custom json encoder just for an indentation.
   final jsonEncoder = JsonEncoder.withIndent(' ' * 2);
   final client = HttpClient();
-  final channel = Channel.fromString((stdin.readLineSync()?..trim()) ?? "");
+  final channel = Channel.fromString(args.first);
+  final logCtx = _logger.bind({log.Str('channel', channel.name)});
 
-  var timer =
-      _logger.trace('fetching a list of sources', level: log.Level.info);
-  final versions = (await fetchVersions(client, channel));
+  // Read existing versions.
+  var timer = logCtx.trace('reading existing versions', level: log.Level.info);
+  final sourcesFile = File('./sources/${channel.name}/sources.json');
+  final existingSources = switch (sourcesFile.existsSync()) {
+    true => (_parseSources(sourcesFile.readAsStringSync()))
+        .entries
+        .map((entry) => MapEntry(Version.parse(entry.key), entry.value)),
+    false => <MapEntry<Version, SourceValue>>[]
+  };
+  timer.stop('finished reading existing versions',
+      fields: [log.Int('total_existing_versions', existingSources.length)]);
 
+  final existingVerions = existingSources.map((e) => e.key);
+
+  timer = logCtx.trace('fetching a list of sources', level: log.Level.info);
+  final versionsToDownload = (await fetchVersions(client, channel))
+      .where((version) => !existingVerions.contains(version))
+      .toList();
   timer.stop('finished fetching a list of sources', fields: [
     log.Str('channel', channel.name),
-    log.Int('total_fetched', versions.length)
+    log.Int('total_fetched', versionsToDownload.length)
   ]);
 
-  timer = _logger.trace('fetching source entities', level: log.Level.info);
+  final List<MapEntry<Version, SourceValue>> downloadedSources = [];
 
-  final Map<
-      String, // version
-      Map<
-          String, // $arch-$platform
-          Source>> result = {};
-
-  for (int i = 0; i < versions.length; i += _chunkSize) {
-    final versionsChunk =
-        versions.getRange(i, min(i + _chunkSize, versions.length));
-
+  timer = logCtx.trace('fetching source entities', level: log.Level.info);
+  for (int i = 0; i < versionsToDownload.length; i += _chunkSize) {
+    final versionsChunk = versionsToDownload.getRange(
+        i, min(i + _chunkSize, versionsToDownload.length));
     final sources = await Future.wait(versionsChunk.map((version) async {
       final versionStr = version.toString();
       final sourceMap = Map.fromEntries(
@@ -190,20 +217,26 @@ Future<void> main() async {
             (arch) => fetchSource(client, channel, platform, arch, versionStr));
       })));
 
-      return MapEntry(versionStr, sourceMap);
+      return MapEntry(version, sourceMap);
     }));
 
-    result.addEntries(sources);
+    downloadedSources.addAll(sources);
   }
-
   timer.stop('finished fetching source entities',
-      fields: [log.Int('total_fetched', result.length)]);
+      fields: [log.Int('total_fetched', downloadedSources.length)]);
 
-  // Write the source
-  timer = _logger.trace('writing file to disk', level: log.Level.info);
-  await File('./sources-${channel.name}.json')
-    ..writeAsString(jsonEncoder.convert(result));
-  timer.stop('finished writing file to disk');
+  // Construct a new JSON map by merging downloaded sources with existing one.
+  // The resulted set is sorted in desc order by versions.
+  final sourcesMap = Map.fromEntries(([...downloadedSources, ...existingSources]
+        ..sort((a, b) => b.key.compareTo(a.key)))
+      .map((entry) => MapEntry(entry.key.toString(), entry.value)));
+
+  // Write source file
+  timer = logCtx.trace('writing source file to disk', level: log.Level.info);
+  sourcesFile
+    ..createSync(recursive: true)
+    ..writeAsStringSync(jsonEncoder.convert(sourcesMap), flush: true);
+  timer.stop('finished writing source file to disk');
 
   client.close();
 }

@@ -12,26 +12,29 @@
       flake-utils,
       ...
     }:
-    let outputs = flake-utils.lib.eachDefaultSystem (
-      system:
-      let
-        pkgs = import nixpkgs { inherit system; };
-      in
-      {
-        packages = import ./default.nix {inherit system pkgs;}
+    let
+      outputs = flake-utils.lib.eachDefaultSystem (
+        system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+        in
+        {
+          packages = import ./default.nix { inherit system pkgs; };
 
-        devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            dart
-          ];
-        };
+          devShells.default = pkgs.mkShell {
+            buildInputs = with pkgs; [
+              dart
+            ];
+          };
 
-        formatter = pkgs.nixfmt-rfc-style;
-      }
-    );
-    in outputs // {
-        overlays.default = final: prev: {
+          formatter = pkgs.nixfmt-rfc-style;
+        }
+      );
+    in
+    outputs
+    // {
+      overlays.default = final: prev: {
 
-        };
+      };
     };
 }
