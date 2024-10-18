@@ -1,5 +1,5 @@
 {
-  description = "Dart binaries. Supporting stable, beta and dev channels.";
+  description = "Dart binaries. Supporting stable, beta, and dev channels.";
 
   inputs = {
     nixpkgs.url = "nixpkgs/nixos-unstable";
