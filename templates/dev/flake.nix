@@ -1,5 +1,5 @@
 {
-  description = "An empty project that uses Dart";
+  description = "An empty project that uses Dart from dev channel";
 
   inputs = {
     nixpkgs.url = "nixpkgs/nixos-unstable";
@@ -19,8 +19,9 @@
           dartpkgs = inputs.dart.packages.${prev.system};
         })
       ];
+      systems = builtins.attrsets.attrNames inputs.dart.packages;
     in
-    flake-utils.lib.eachDefaultSystem (
+    flake-utils.lib.eachSystem systems (
       system:
       let
         pkgs = import nixpkgs { inherit system overlays; };
@@ -28,7 +29,7 @@
       {
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
-            dart.dev."3.6.0-334.0.dev"
+            dartpkgs.dev
           ];
         };
 

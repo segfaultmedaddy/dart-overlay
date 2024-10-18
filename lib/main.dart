@@ -70,7 +70,7 @@ final _chunkSize = 4;
 
 final _logger = log.Logger.detached("dart-overlay.main");
 
-Future<Stream<String>> getTextBase(HttpClient client, Uri url) async {
+Future<Stream<String>> _getTextBase(HttpClient client, Uri url) async {
   final timer = _logger.bind({log.Str.lazy("url", () => url.toString())}).trace(
       'sending request');
 
@@ -85,17 +85,17 @@ Future<Stream<String>> getTextBase(HttpClient client, Uri url) async {
 
 // [getText] makes GET request to the given [url] and parses returned bytes
 // as UTF-8 string.
-Future<String> getText(HttpClient client, Uri url) async =>
-    (await getTextBase(client, url)).first;
+Future<String> _getText(HttpClient client, Uri url) async =>
+    (await _getTextBase(client, url)).first;
 
 // [getJson] makes GET request to the given [url] and parses returned bytes
 // as JSON data.
-Future<Object?> getJson(HttpClient client, Uri url) async =>
-    (await getTextBase(client, url)).transform(json.decoder).first;
+Future<Object?> _getJson(HttpClient client, Uri url) async =>
+    (await _getTextBase(client, url)).transform(json.decoder).first;
 
 // [getVersions] returns a list of available versions for the channel.
 // The returned list is sorted based on semver comparison in desc order.
-Future<List<Version>> fetchVersions(
+Future<List<Version>> _fetchVersions(
     HttpClient client, final Channel channel) async {
   final commonPrefix = 'channels/${channel.name}/release/';
   final url = Uri.https(_domain, '/storage/v1/b/dart-archive/o',
@@ -107,7 +107,7 @@ Future<List<Version>> fetchVersions(
 
   logctx.info('getting a list of sources');
 
-  final resp = await getJson(client, url);
+  final resp = await _getJson(client, url);
   final result = GoogleStorageObjectList.fromJson(resp as Map<String, dynamic>);
 
   return result.prefixes.fold(
@@ -139,9 +139,9 @@ String _dartArchivePath(
 }
 
 // [fetchSha256] returns a SHA-256 fetched from the storage.
-Future<String> fetchSha256(HttpClient client, Channel channel,
+Future<String> _fetchSha256(HttpClient client, Channel channel,
     Platform platform, Arch arch, String version) async {
-  final text = await getText(
+  final text = await _getText(
       client,
       Uri.https(_domain,
           _dartArchivePath(channel, platform, arch, version) + '.sha256sum'));
@@ -151,13 +151,30 @@ Future<String> fetchSha256(HttpClient client, Channel channel,
 
 Future<MapEntry<String, Source>> fetchSource(HttpClient client, Channel channel,
     Platform platform, Arch arch, String version) async {
-  final sha256 = await fetchSha256(client, channel, platform, arch, version);
+  final sha256 = await _fetchSha256(client, channel, platform, arch, version);
   final url =
       Uri.https(_domain, _dartArchivePath(channel, platform, arch, version))
           .toString();
 
   return MapEntry(
       "${arch.toNix()}-${platform.toNix()}", Source(version, url, sha256));
+}
+
+bool _skipVersion(Version version) {
+  // No SHA-256 for builds before 1.6.0-dev.9.3
+  return version < Version(1, 6, 0, pre: "dev.9.3");
+}
+
+bool _filterArch(Platform platform, Arch arch, Version version) {
+  return switch (platform) {
+    // No macOS ARM64 builds before 2.14.1
+    Platform.macos => !(arch == Arch.arm64 && version < Version(2, 14, 1)),
+    Platform.linux =>
+      // No linux ARM64 builds before 1.23.0-dev.5.0
+      !(arch == Arch.arm64 && version < Version(1, 23, 0, pre: 'dev.5.0')) &&
+          // SHA-256 sum is broken for 2.0.0-dev.49.0
+          !(arch == Arch.arm64 && version == Version(2, 0, 0, pre: 'dev.49.0')),
+  };
 }
 
 Future<void> main(List<String> args) async {
@@ -178,10 +195,8 @@ Future<void> main(List<String> args) async {
   var timer = logCtx.trace('reading existing versions', level: log.Level.info);
   final sourcesFile = File('./sources/${channel.name}/sources.json');
   final existingSources = switch (sourcesFile.existsSync()) {
-    true => (_parseSources(sourcesFile.readAsStringSync()))
-        .entries
-        .map((entry) => MapEntry(Version.parse(entry.key), entry.value)),
-    false => <MapEntry<Version, SourceValue>>[]
+    true => (_parseSources(sourcesFile.readAsStringSync())).entries,
+    false => <MapEntry<String, SourceValue>>[]
   };
   timer.stop('finished reading existing versions',
       fields: [log.Int('total_existing_versions', existingSources.length)]);
@@ -189,7 +204,7 @@ Future<void> main(List<String> args) async {
   final existingVerions = existingSources.map((e) => e.key);
 
   timer = logCtx.trace('fetching a list of sources', level: log.Level.info);
-  final versionsToDownload = (await fetchVersions(client, channel))
+  final versionsToDownload = (await _fetchVersions(client, channel))
       .where((version) => !existingVerions.contains(version))
       .toList();
   timer.stop('finished fetching a list of sources', fields: [
@@ -197,7 +212,7 @@ Future<void> main(List<String> args) async {
     log.Int('total_fetched', versionsToDownload.length)
   ]);
 
-  final List<MapEntry<Version, SourceValue>> downloadedSources = [];
+  final List<MapEntry<String, SourceValue>> downloadedSources = [];
 
   timer = logCtx.trace('fetching source entities', level: log.Level.info);
   for (int i = 0; i < versionsToDownload.length; i += _chunkSize) {
@@ -217,7 +232,7 @@ Future<void> main(List<String> args) async {
             (arch) => fetchSource(client, channel, platform, arch, versionStr));
       })));
 
-      return MapEntry(version, sourceMap);
+      return MapEntry(version.toString(), sourceMap);
     }));
 
     downloadedSources.addAll(sources);
@@ -226,10 +241,10 @@ Future<void> main(List<String> args) async {
       fields: [log.Int('total_fetched', downloadedSources.length)]);
 
   // Construct a new JSON map by merging downloaded sources with existing one.
-  // The resulted set is sorted in desc order by versions.
-  final sourcesMap = Map.fromEntries(([...downloadedSources, ...existingSources]
-        ..sort((a, b) => b.key.compareTo(a.key)))
-      .map((entry) => MapEntry(entry.key.toString(), entry.value)));
+  final sourcesMap = Map.fromEntries(([
+    ...downloadedSources,
+    ...existingSources
+  ]).map((entry) => MapEntry(entry.key.toString(), entry.value)));
 
   // Write source file
   timer = logCtx.trace('writing source file to disk', level: log.Level.info);
@@ -239,21 +254,4 @@ Future<void> main(List<String> args) async {
   timer.stop('finished writing source file to disk');
 
   client.close();
-}
-
-bool _skipVersion(Version version) {
-  // No SHA-256 for builds before 1.6.0-dev.9.3
-  return version < Version(1, 6, 0, pre: "dev.9.3");
-}
-
-bool _filterArch(Platform platform, Arch arch, Version version) {
-  return switch (platform) {
-    // No macOS ARM64 builds before 2.14.1
-    Platform.macos => !(arch == Arch.arm64 && version < Version(2, 14, 1)),
-    Platform.linux =>
-      // No linux ARM64 builds before 1.23.0-dev.5.0
-      !(arch == Arch.arm64 && version < Version(1, 23, 0, pre: 'dev.5.0')) &&
-          // SHA-256 sum is broken for 2.0.0-dev.49.0
-          !(arch == Arch.arm64 && version == Version(2, 0, 0, pre: 'dev.49.0')),
-  };
 }

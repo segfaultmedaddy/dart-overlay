@@ -6,12 +6,12 @@ let
   inherit (pkgs) lib;
 
   src = {
-    stable = builtins.fromJSON (lib.strings.fileContents "./sources/stable/sources.json");
-    beta = builtins.fromJSON (lib.strings.fileContents "./sources/beta/sources.json");
-    dev = builtins.fromJSON (lib.strings.fileContents "./sources/dev/sources.json");
+    stable = builtins.fromJSON (lib.strings.fileContents ./sources/stable/sources.json);
+    beta = builtins.fromJSON (lib.strings.fileContents ./sources/beta/sources.json);
+    dev = builtins.fromJSON (lib.strings.fileContents ./sources/dev/sources.json);
   };
 
-  mkInstall =
+  mkBinary =
     {
       url,
       version,
@@ -21,10 +21,14 @@ let
       inherit version;
 
       pname = "dart";
+      nativeBuildInputs = [ pkgs.unzip ];
       src = pkgs.fetchurl { inherit url sha256; };
       dontBuild = true;
+      dontStrip = true;
+      libPath = lib.makeLibraryPath [ pkgs.stdenv.cc.cc ];
       installPhase =
         ''
+          mkdir -p $out
           cp -R * $out/
           echo $libPath
         ''
@@ -33,26 +37,20 @@ let
         '';
     };
 
-  mkChannel = lib.attrsets.mapAttrs (k: v: mkInstall { inherit (v.${system}) version url sha256; }) (
-    lib.attrsets.filterAttrs (k: v: (builtins.hasAttr system v))
-  );
+  mkChannel =
+    source:
+    let
+      result = lib.attrsets.mapAttrs (k: v: mkBinary { inherit (v.${system}) version url sha256; }) (
+        lib.attrsets.filterAttrs (k: v: (builtins.hasAttr system v)) source
+      );
+      latest = lib.lists.last (
+        builtins.sort (x: y: (builtins.compareVersions x y) < 0) (lib.attrsets.attrNames result)
+      );
+    in
+    result // { "default" = result.${latest}; };
 
-  stable = mkChannel (src.stable);
-  dev = mkChannel (src.dev);
-  beta = mkChannel (src.beta);
-
-  # latest stable versions. It is fine to take the first entry as
-  # it is expected that the source map will be sorted in desc order by
-  # version.
-  latest = lib.lists.first stable;
+  stable = mkChannel src.stable;
+  dev = mkChannel src.dev;
+  beta = mkChannel src.beta;
 in
-stable
-// {
-  dev = dev;
-}
-// {
-  beta = beta;
-}
-// {
-  default = stable.${latest};
-}
+stable // { "dev" = dev; } // { "beta" = beta; }
