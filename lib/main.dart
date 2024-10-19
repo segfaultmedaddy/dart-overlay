@@ -58,6 +58,25 @@ enum Arch {
       switch (this) { Arch.arm64 => 'aarch64', Arch.x64 => 'x86_64' };
 }
 
+final _x64macOsMissingChecksum = [Version(1, 24, 0)];
+final _x64LinuxMissingChecksum = [Version(1, 24, 0)];
+final _arm64LinuxMissingChecksum = [
+  Version(1, 23, 0, pre: "dev.9.2"),
+  Version(1, 24, 0),
+  Version(1, 25, 0, pre: "dev.10.0"),
+  Version(1, 25, 0, pre: "dev.16.0"),
+  Version(2, 0, 0, pre: "dev.1.0"),
+  Version(2, 0, 0, pre: "dev.11.0"),
+  Version(2, 0, 0, pre: "dev.25.0"),
+  Version(2, 0, 0, pre: "dev.27.0"),
+  Version(2, 0, 0, pre: "dev.33.0"),
+  Version(2, 0, 0, pre: 'dev.49.0'),
+  Version(2, 0, 0, pre: "dev.62.0"),
+  Version(2, 0, 0, pre: "dev.63.0"),
+  Version(2, 0, 0, pre: "dev.69.2"),
+  Version(2, 1, 0, pre: "dev.9.0"),
+];
+
 final _platformToArch = {
   Platform.macos: [Arch.arm64, Arch.x64],
   Platform.linux: [Arch.arm64, Arch.x64],
@@ -168,12 +187,17 @@ bool _skipVersion(Version version) {
 bool _filterArch(Platform platform, Arch arch, Version version) {
   return switch (platform) {
     // No macOS ARM64 builds before 2.14.1
-    Platform.macos => !(arch == Arch.arm64 && version < Version(2, 14, 1)),
+    Platform.macos => !(arch == Arch.arm64 && version < Version(2, 14, 1)) &&
+        // missing checksum
+        !(arch == Arch.x64 && _x64macOsMissingChecksum.contains(version)),
     Platform.linux =>
       // No linux ARM64 builds before 1.23.0-dev.5.0
-      !(arch == Arch.arm64 && version < Version(1, 23, 0, pre: 'dev.5.0')) &&
-          // SHA-256 sum is broken for 2.0.0-dev.49.0
-          !(arch == Arch.arm64 && version == Version(2, 0, 0, pre: 'dev.49.0')),
+      !(arch == Arch.arm64 &&
+              (version < Version(1, 23, 0, pre: 'dev.5.0') ||
+                  // missing checksum
+                  _arm64LinuxMissingChecksum.contains(version))) &&
+          // missing checksum
+          !(arch == Arch.x64 && _x64LinuxMissingChecksum.contains(version)),
   };
 }
 

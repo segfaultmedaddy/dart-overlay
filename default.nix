@@ -53,4 +53,13 @@ let
   dev = mkChannel src.dev;
   beta = mkChannel src.beta;
 in
-stable // { "dev" = dev; } // { "beta" = beta; }
+{
+  default = stable.default;
+}
+// stable
+// {
+  dev = dev.default;
+  beta = beta.default;
+}
+// lib.mapAttrs' (name: value: lib.nameValuePair "dev-${name}" value) dev
+// lib.mapAttrs' (name: value: lib.nameValuePair "beta-${name}" value) beta

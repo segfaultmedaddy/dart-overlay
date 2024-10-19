@@ -41,13 +41,6 @@
               };
 
               formatter = pkgs.nixfmt-rfc-style;
-
-              templates = {
-                dev = {
-                  path = ./templates/dev;
-                  description = "An empty development environment with Dart binary from dev channel";
-                };
-              };
             }
           );
     in
@@ -55,6 +48,11 @@
     // {
       overlays.default = final: prev: {
         dartpkgs = outputs.packages.${prev.system};
+      };
+
+      templates.dev = {
+        path = ./templates/dev;
+        description = "An empty development environment with Dart binary from dev channel";
       };
     };
 }
