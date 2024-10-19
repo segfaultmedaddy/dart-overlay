@@ -12,6 +12,7 @@ Currently, `aarch64-linux`, `x86_64-linux`, `aarch64-darwin`, and `x86_64-darwin
 - `packages."beta-<version>"` for beta releases
 - `packages."dev-<version>"` for dev releases
 - `packages.stable`, `packages.beta`, and `packages.dev` for the latest version from stable, beta, and dev correspondingly
+- `packages.default` points to `packages.stable` for convinience
 - `overlays.default` is an overlay that adds `dartpkgs` to the packages exposed by the flake
 
 In `flake.nix`:
@@ -30,6 +31,7 @@ In a shell:
 
 ```sh
 nix run 'github:roman-vanesyan/dart-overlay' # latest stable
+nix run 'github:roman-vanesyan/dart-overlay#"3.5.4"' # 3.5.4 from stable channel
 nix run 'github:roman-vanesyan/dart-overlay#beta' # latest beta
 nix shell 'github:roman-vanesyan/dart-overlay#"dev-3.7.0-27.0.dev"' # 3.7.0-27.0.dev from dev channel
 ```

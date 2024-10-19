@@ -54,12 +54,11 @@ let
   beta = mkChannel src.beta;
 in
 {
+  stable = stable.default;
   default = stable.default;
-}
-// stable
-// {
   dev = dev.default;
   beta = beta.default;
 }
+// stable
 // lib.mapAttrs' (name: value: lib.nameValuePair "dev-${name}" value) dev
 // lib.mapAttrs' (name: value: lib.nameValuePair "beta-${name}" value) beta

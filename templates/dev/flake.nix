@@ -14,11 +14,7 @@
       ...
     }:
     let
-      overlays = [
-        (final: prev: {
-          dartpkgs = inputs.dart.packages.${prev.system};
-        })
-      ];
+      overlays = [ inputs.dart.overlays.default ];
       systems = builtins.attrsets.attrNames inputs.dart.packages;
     in
     flake-utils.lib.eachSystem systems (
