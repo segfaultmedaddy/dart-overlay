@@ -28,8 +28,6 @@
             dartpkgs.dev
           ];
         };
-
-        formatter = pkgs.nixfmt-rfc-style;
       }
     );
 }

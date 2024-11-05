@@ -7,9 +7,11 @@ environment:
   sdk: ">=3.5.0 <4.0.0"
 
 dependencies:
-  jetlog: ^1.0.0
+  strlog: ^2.0.0-rc.2
   json_annotation: ^4.9.0
+  pub_semver: ^2.1.4
 
 dev_dependencies:
   json_serializable: ^6.8.0
   build_runner: ^2.3.3
+  lints: ^5.0.0

@@ -10,6 +10,8 @@ class GoogleStorageObjectList {
 
   final String kind;
   final List<String> prefixes;
+
+  Map<String, dynamic> toJson() => _$GoogleStorageObjectListToJson(this);
 }
 
 // [Source] represents a single source entry in the source-[channel].json
@@ -22,5 +24,5 @@ class Source {
   final String url;
   final String sha256;
 
-  toJson() => _$SourceToJson(this);
+  Map<String, dynamic> toJson() => _$SourceToJson(this);
 }

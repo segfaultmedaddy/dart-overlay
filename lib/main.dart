@@ -2,9 +2,9 @@ import 'dart:io' show HttpClient, File;
 import 'dart:convert' show utf8, json, JsonEncoder;
 import 'dart:math' show min;
 import 'package:pub_semver/pub_semver.dart' show Version;
-import 'package:jetlog/jetlog.dart' as log;
-import 'package:jetlog/handlers.dart' show ConsoleHandler;
-import 'package:jetlog/formatters.dart' show TextFormatter;
+import 'package:strlog/strlog.dart' as log;
+import 'package:strlog/handlers.dart' show ConsoleHandler;
+import 'package:strlog/formatters.dart' show TextFormatter;
 import 'src/dao.dart';
 import 'src/svn_versions.dart';
 
@@ -13,13 +13,15 @@ typedef SourceValue = Map<
     Source>;
 
 Map<String, SourceValue> _parseSources(String content) {
-  final Map<String, dynamic> parsedJsonMap = json.decode(content);
+  final parsedJsonMap = json.decode(content) as Map<String, dynamic>;
   return Map<String, SourceValue>.fromIterables(parsedJsonMap.keys,
       parsedJsonMap.keys.map((key) {
-    final source = Map<String, dynamic>.from(parsedJsonMap[key]);
+    final source = parsedJsonMap[key] as Map<String, dynamic>;
 
     return Map<String, Source>.fromIterables(
-        source.keys, source.keys.map((key) => Source.fromJson(source[key])));
+        source.keys,
+        source.keys.map(
+            (key) => Source.fromJson(source[key] as Map<String, dynamic>)));
   }));
 }
 
@@ -90,12 +92,13 @@ final _chunkSize = 4;
 final _logger = log.Logger.detached("dart-overlay.main");
 
 Future<Stream<String>> _getTextBase(HttpClient client, Uri url) async {
-  final timer = _logger.bind({log.Str.lazy("url", () => url.toString())}).trace(
-      'sending request');
+  final timer = _logger
+      .withFields({log.Str.lazy("url", () => url.toString())}).startTimer(
+          'sending request');
 
   final req = await client.getUrl(url);
   final res = await req.close();
-  final stream = await res.transform(utf8.decoder);
+  final stream = res.transform(utf8.decoder);
 
   timer.stop('finished request');
 
@@ -119,7 +122,7 @@ Future<List<Version>> _fetchVersions(
   final commonPrefix = 'channels/${channel.name}/release/';
   final url = Uri.https(_domain, '/storage/v1/b/dart-archive/o',
       {'delimiter': _delimiter, 'alt': _alt, 'prefix': commonPrefix});
-  final logctx = _logger.bind({
+  final logctx = _logger.withFields({
     log.Str('common_prefix', commonPrefix),
     log.Str('channel', channel.name)
   });
@@ -151,10 +154,10 @@ Future<List<Version>> _fetchVersions(
 String _dartArchivePath(
     Channel channel, Platform platform, Arch arch, String version) {
   final ver = versionToRevision.containsKey(version)
-      ? versionToRevision[version]
+      ? versionToRevision[version]!
       : version;
 
-  return 'dart-archive/channels/${channel.name}/release/${ver}/sdk/dartsdk-${platform.name}-${arch.name}-release.zip';
+  return 'dart-archive/channels/${channel.name}/release/$ver/sdk/dartsdk-${platform.name}-${arch.name}-release.zip';
 }
 
 // [fetchSha256] returns a SHA-256 fetched from the storage.
@@ -163,7 +166,7 @@ Future<String> _fetchSha256(HttpClient client, Channel channel,
   final text = await _getText(
       client,
       Uri.https(_domain,
-          _dartArchivePath(channel, platform, arch, version) + '.sha256sum'));
+          '${_dartArchivePath(channel, platform, arch, version)}.sha256sum'));
 
   return text.split(' ').first;
 }
@@ -206,17 +209,19 @@ Future<void> main(List<String> args) async {
     throw Exception('Missing channel argument');
   }
 
-  _logger.handler = ConsoleHandler(formatter: TextFormatter.withDefaults());
+  _logger.handler =
+      ConsoleHandler(formatter: TextFormatter.withDefaults().call);
   _logger.level = log.Level.info;
 
   // using custom json encoder just for an indentation.
   final jsonEncoder = JsonEncoder.withIndent(' ' * 2);
   final client = HttpClient();
   final channel = Channel.fromString(args.first);
-  final logCtx = _logger.bind({log.Str('channel', channel.name)});
+  final logCtx = _logger.withFields({log.Str('channel', channel.name)});
 
   // Read existing versions.
-  var timer = logCtx.trace('reading existing versions', level: log.Level.info);
+  var timer =
+      logCtx.startTimer('reading existing versions', level: log.Level.info);
   final sourcesFile = File('./sources/${channel.name}/sources.json');
   final existingSources = switch (sourcesFile.existsSync()) {
     true => (_parseSources(sourcesFile.readAsStringSync())).entries,
@@ -227,9 +232,10 @@ Future<void> main(List<String> args) async {
 
   final existingVerions = existingSources.map((e) => e.key);
 
-  timer = logCtx.trace('fetching a list of sources', level: log.Level.info);
+  timer =
+      logCtx.startTimer('fetching a list of sources', level: log.Level.info);
   final versionsToDownload = (await _fetchVersions(client, channel))
-      .where((version) => !existingVerions.contains(version))
+      .where((version) => !existingVerions.contains(version.toString()))
       .toList();
   timer.stop('finished fetching a list of sources', fields: [
     log.Str('channel', channel.name),
@@ -238,7 +244,7 @@ Future<void> main(List<String> args) async {
 
   final List<MapEntry<String, SourceValue>> downloadedSources = [];
 
-  timer = logCtx.trace('fetching source entities', level: log.Level.info);
+  timer = logCtx.startTimer('fetching source entities', level: log.Level.info);
   for (int i = 0; i < versionsToDownload.length; i += _chunkSize) {
     final versionsChunk = versionsToDownload.getRange(
         i, min(i + _chunkSize, versionsToDownload.length));
@@ -271,7 +277,8 @@ Future<void> main(List<String> args) async {
   ]).map((entry) => MapEntry(entry.key.toString(), entry.value)));
 
   // Write source file
-  timer = logCtx.trace('writing source file to disk', level: log.Level.info);
+  timer =
+      logCtx.startTimer('writing source file to disk', level: log.Level.info);
   sourcesFile
     ..createSync(recursive: true)
     ..writeAsStringSync(jsonEncoder.convert(sourcesMap), flush: true);
