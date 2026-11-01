@@ -4,6 +4,8 @@ This repository is a Nix flake packaging the Dart toolchain. The flake provides 
 
 It supports three channels: stable, beta, and dev.
 
+The source fetcher retains all releases within the latest four SemVer major versions for each channel, pruning older entries on each update.
+
 Currently, `aarch64-linux`, `x86_64-linux`, `aarch64-darwin`, and `x86_64-darwin` systems are supported. The flake doesn't provide binaries for versions that do not support any of these systems.
 
 ## Usage

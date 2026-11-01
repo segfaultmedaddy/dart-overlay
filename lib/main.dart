@@ -88,6 +88,7 @@ final _domain = 'storage.googleapis.com';
 final _alt = 'json';
 final _delimiter = '/';
 final _chunkSize = 4;
+const _majorVersionsToKeep = 4;
 
 final _logger = log.Logger.detached("dart-overlay.main");
 
@@ -234,7 +235,16 @@ Future<void> main(List<String> args) async {
 
   timer =
       logCtx.startTimer('fetching a list of sources', level: log.Level.info);
-  final versionsToDownload = (await _fetchVersions(client, channel))
+  final availableVersions = await _fetchVersions(client, channel);
+  final majorVersions = availableVersions
+      .map((version) => version.major)
+      .toSet()
+      .toList()
+    ..sort((a, b) => b.compareTo(a));
+  final retainedMajorVersions =
+      majorVersions.take(_majorVersionsToKeep).toSet();
+  final versionsToDownload = availableVersions
+      .where((version) => retainedMajorVersions.contains(version.major))
       .where((version) => !existingVerions.contains(version.toString()))
       .toList();
   timer.stop('finished fetching a list of sources', fields: [
@@ -270,10 +280,11 @@ Future<void> main(List<String> args) async {
   timer.stop('finished fetching source entities',
       fields: [log.Int('total_fetched', downloadedSources.length)]);
 
-  // Construct a new JSON map by merging downloaded sources with existing one.
+  // Merge downloaded and existing sources, pruning older major versions.
   final sourcesMap = Map.fromEntries(([
     ...downloadedSources,
-    ...existingSources
+    ...existingSources.where((entry) =>
+        retainedMajorVersions.contains(Version.parse(entry.key).major))
   ]).map((entry) => MapEntry(entry.key.toString(), entry.value)));
 
   // Write source file

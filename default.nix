@@ -21,20 +21,15 @@ let
       inherit version;
 
       pname = "dart";
-      nativeBuildInputs = [ pkgs.unzip ];
+      nativeBuildInputs = [ pkgs.unzip ] ++ lib.optionals pkgs.stdenv.isLinux [ pkgs.autoPatchelfHook ];
+      buildInputs = lib.optionals pkgs.stdenv.isLinux [ pkgs.stdenv.cc.cc.lib ];
       src = pkgs.fetchurl { inherit url sha256; };
       dontBuild = true;
       dontStrip = true;
-      libPath = lib.makeLibraryPath [ pkgs.stdenv.cc.cc ];
-      installPhase =
-        ''
-          mkdir -p $out
-          cp -R * $out/
-          echo $libPath
-        ''
-        + lib.optionalString (pkgs.stdenv.isLinux) ''
-          find $out/bin -executable -type f -exec patchelf --set-interpreter $(cat $NIX_CC/nix-support/dynamic-linker) {} \;
-        '';
+      installPhase = ''
+        mkdir -p $out
+        cp -R * $out/
+      '';
     };
 
   mkChannel =
